@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import base64
 import time
 from datetime import datetime, timedelta, date
 import streamlit.components.v1 as components
@@ -9,96 +8,7 @@ import streamlit.components.v1 as components
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Equipment Management System", layout="wide", page_icon="📸")
 
-# --- 2. Helper Functions: Background & Clock ---
-
-def get_base64_of_bin_file(bin_file):
-    """Read image file and convert to Base64 string"""
-    try:
-        with open(bin_file, 'rb') as f:
-            data = f.read()
-        return base64.b64encode(data).decode()
-    except FileNotFoundError:
-        return None
-
-def set_bg_hack(main_bg):
-    """Set tiled background image"""
-    bin_str = get_base64_of_bin_file(main_bg)
-    if bin_str:
-        page_bg_img = '''
-        <style>
-        .stApp {
-            background-image: url("data:image/png;base64,%s");
-            background-size: 100px; /* Size of the tiled image */
-            background-repeat: repeat;
-        }
-        /* Add semi-transparent white background to content containers for readability */
-        [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-            background-color: rgba(255, 255, 255, 0.95);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        </style>
-        ''' % bin_str
-        st.markdown(page_bg_img, unsafe_allow_html=True)
-    else:
-        st.toast("⚠️ Note: 'background.png' not found. Using default white background.")
-
-def show_digital_clock():
-    """Display a digital clock in the sidebar"""
-    clock_html = """
-    <div style="font-family: 'Helvetica Neue', sans-serif; font-size: 24px; font-weight: bold; color: #333; background: #f0f2f6; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #d6d6d6;">
-        🕒 <span id="clock"></span>
-    </div>
-    <script>
-    function updateTime() {
-        var now = new Date();
-        var timeString = now.toLocaleTimeString('en-US', { hour12: false });
-        document.getElementById('clock').innerHTML = timeString;
-    }
-    setInterval(updateTime, 1000);
-    updateTime();
-    </script>
-    """
-    components.html(clock_html, height=80)
-
-# --- 3. Database Initialization ---
-def init_db():
-    conn = sqlite3.connect('equipment.db')
-    c = conn.cursor()
-    # Items Table
-    c.execute('''CREATE TABLE IF NOT EXISTS items
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  name TEXT,
-                  category TEXT,
-                  total_qty INTEGER,
-                  in_stock_qty INTEGER)''')
-    # Logs Table
-    c.execute('''CREATE TABLE IF NOT EXISTS logs
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  student_name TEXT,
-                  contact_info TEXT,
-                  item_name TEXT,
-                  action TEXT,
-                  borrow_time TEXT,
-                  duration_days INTEGER,
-                  expected_return TEXT,
-                  status TEXT)''')
-    conn.commit()
-    conn.close()
-
-def run_query(query, params=(), fetch=False):
-    conn = sqlite3.connect('equipment.db')
-    c = conn.cursor()
-    c.execute(query, params)
-    if fetch:
-        data = c.fetchall()
-        conn.close()
-        return data
-    conn.commit()
-    conn.close()
-
-# --- 4. Default Item List (English) ---
+# --- 2. 50 Common Inventory Items (Pre-defined) ---
 DEFAULT_ITEMS = [
     # Digital Cameras
     ("Canon EOS 5D Mark IV", "Digital Camera", 2), ("Sony Alpha 7 IV", "Digital Camera", 3),
@@ -130,9 +40,77 @@ DEFAULT_ITEMS = [
     ("JVC DLA-NP5", "Projector", 1), ("Dangbei Mars Pro", "Projector", 1)
 ]
 
-# Initialize
+# --- 3. Database Initialization (Auto-Import Logic) ---
+def init_db():
+    conn = sqlite3.connect('equipment.db')
+    c = conn.cursor()
+    
+    # Create Tables
+    c.execute('''CREATE TABLE IF NOT EXISTS items
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  name TEXT,
+                  category TEXT,
+                  total_qty INTEGER,
+                  in_stock_qty INTEGER)''')
+                  
+    c.execute('''CREATE TABLE IF NOT EXISTS logs
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  student_name TEXT,
+                  contact_info TEXT,
+                  item_name TEXT,
+                  action TEXT,
+                  borrow_time TEXT,
+                  duration_days INTEGER,
+                  expected_return TEXT,
+                  status TEXT)''')
+    
+    # --- AUTO IMPORT CHECK ---
+    # Check if the inventory is empty
+    c.execute("SELECT count(*) FROM items")
+    count = c.fetchone()[0]
+    
+    if count == 0:
+        # If empty, automatically insert the 50 default items
+        print("Database empty. Auto-importing default items...")
+        for item in DEFAULT_ITEMS:
+            c.execute("INSERT INTO items (name, category, total_qty, in_stock_qty) VALUES (?, ?, ?, ?)",
+                      (item[0], item[1], item[2], item[2]))
+        conn.commit()
+    
+    conn.commit()
+    conn.close()
+
+def run_query(query, params=(), fetch=False):
+    conn = sqlite3.connect('equipment.db')
+    c = conn.cursor()
+    c.execute(query, params)
+    if fetch:
+        data = c.fetchall()
+        conn.close()
+        return data
+    conn.commit()
+    conn.close()
+
+# --- 4. Helper: Digital Clock ---
+def show_digital_clock():
+    clock_html = """
+    <div style="font-family: 'Helvetica Neue', sans-serif; font-size: 24px; font-weight: bold; color: #333; background: #f0f2f6; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #d6d6d6;">
+        🕒 <span id="clock"></span>
+    </div>
+    <script>
+    function updateTime() {
+        var now = new Date();
+        var timeString = now.toLocaleTimeString('en-US', { hour12: false });
+        document.getElementById('clock').innerHTML = timeString;
+    }
+    setInterval(updateTime, 1000);
+    updateTime();
+    </script>
+    """
+    components.html(clock_html, height=80)
+
+# Initialize System (This runs on every load)
 init_db()
-set_bg_hack('background.png')
 
 # --- 5. Sidebar Navigation ---
 with st.sidebar:
@@ -152,7 +130,6 @@ if choice == "Borrow Equipment":
     
     with st.container(border=True):
         items = run_query("SELECT name, in_stock_qty FROM items WHERE in_stock_qty > 0", fetch=True)
-        # Dropdown format: Name (Available: X)
         item_options = {f"{i[0]} (Available: {i[1]})": i[0] for i in items}
         
         with st.form("borrow_form"):
@@ -165,7 +142,7 @@ if choice == "Borrow Equipment":
             with col2:
                 selected_label = st.selectbox("Select Item", list(item_options.keys()) if item_options else ["Out of Stock"])
                 
-                # === 📅 Calendar Logic ===
+                # Calendar Input
                 today = datetime.now().date()
                 max_due_date = today + timedelta(days=7)
                 
@@ -180,25 +157,20 @@ if choice == "Borrow Equipment":
                 duration_days = (return_date - today).days
                 if duration_days < 1: duration_days = 1
                 st.caption(f"📊 Duration: **{duration_days}** days")
-                # ==========================
 
             submitted = st.form_submit_button("Confirm Checkout", type="primary")
             
             if submitted and student_name and item_options:
                 real_item_name = item_options[selected_label]
-                
                 current_time = datetime.now()
-                # Set return time to end of day or specific time
                 expected_return_dt = datetime.combine(return_date, current_time.time())
                 
                 time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
                 return_str = expected_return_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                # Insert into Logs
                 run_query("INSERT INTO logs (student_name, contact_info, item_name, action, borrow_time, duration_days, expected_return, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                           (student_name, contact_info, real_item_name, "Borrowed", time_str, duration_days, return_str, "active"))
                 
-                # Decrease Stock
                 run_query("UPDATE items SET in_stock_qty = in_stock_qty - 1 WHERE name = ?", (real_item_name,))
                 
                 st.success(f"✅ Success! Please return by {return_date}.")
@@ -224,11 +196,7 @@ elif choice == "Return Equipment":
                 item_name = record[0]
                 
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                # Update Log Status
                 run_query("UPDATE logs SET status = 'returned', action = 'Returned (Date: ' || ? || ')' WHERE id = ?", (current_time, log_id))
-                
-                # Increase Stock
                 run_query("UPDATE items SET in_stock_qty = in_stock_qty + 1 WHERE name = ?", (item_name,))
                 
                 st.balloons()
@@ -240,19 +208,7 @@ elif choice == "Return Equipment":
 elif choice == "Inventory Management":
     st.subheader("📦 Inventory Management")
     
-    # Quick Import Section
-    with st.expander("⚡️ Quick Action: Import Default Items", expanded=True):
-        if st.button("🚀 Import 50 Common Items"):
-            existing = run_query("SELECT count(*) FROM items", fetch=True)[0][0]
-            if existing > 0:
-                st.warning(f"Database is not empty ({existing} items). Please clear database first to avoid duplicates.")
-            else:
-                for item in DEFAULT_ITEMS:
-                    run_query("INSERT INTO items (name, category, total_qty, in_stock_qty) VALUES (?, ?, ?, ?)",
-                              (item[0], item[1], item[2], item[2]))
-                st.success(f"Successfully imported {len(DEFAULT_ITEMS)} items!")
-                time.sleep(1.5)
-                st.rerun()
+    # (Auto-import is now handled in init_db, so we removed the manual button)
 
     with st.container(border=True):
         col1, col2 = st.columns([2, 1])
@@ -262,9 +218,9 @@ elif choice == "Inventory Management":
             data = run_query("SELECT name, category, in_stock_qty, total_qty FROM items", fetch=True)
             if data:
                 df = pd.DataFrame(data, columns=["Item Name", "Category", "In Stock", "Total Qty"])
-                st.dataframe(df, use_container_width=True, height=400)
+                st.dataframe(df, use_container_width=True, height=500)
             else:
-                st.info("Inventory is empty. Use the import button above.")
+                st.info("Inventory is empty.")
             
         with col2:
             st.markdown("#### Add New Item")
@@ -290,8 +246,6 @@ elif choice == "Logs & Notifications":
         
         if data:
             df = pd.DataFrame(data, columns=["Student", "Contact", "Item", "Due Date", "Days"])
-            
-            # Check for overdue items
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             df['Status'] = df['Due Date'].apply(lambda x: "⚠️ OVERDUE" if x < now_str else "Normal")
             
@@ -303,7 +257,6 @@ elif choice == "Logs & Notifications":
             student_to_notify = st.selectbox("Select Student to Notify", df['Student'] + " (" + df['Contact'] + ")")
             
             if st.button("Generate Email Draft"):
-                # Extract info
                 selected_name = student_to_notify.split(" (")[0]
                 selected_row = df[df['Student'] == selected_name].iloc[0]
                 
@@ -311,16 +264,13 @@ elif choice == "Logs & Notifications":
                 item = selected_row['Item']
                 due_date = selected_row['Due Date']
                 
-                # Email Template
                 subject = f"Equipment Return Reminder: {item}"
                 body = f"Hi {selected_name},\n\nThis is a friendly reminder that the equipment you borrowed ({item}) is due for return by {due_date}.\n\nPlease return it to the Equipment Center as soon as possible.\n\nThank you!"
                 
-                # Mailto Link
                 mailto_link = f"mailto:{email}?subject={subject}&body={body}"
                 
                 st.code(body, language='text')
                 st.markdown(f"👉 [Click here to open Email Client]({mailto_link})", unsafe_allow_html=True)
-                
         else:
             st.success("No active loans at the moment.")
             
